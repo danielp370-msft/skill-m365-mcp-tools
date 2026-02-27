@@ -113,6 +113,28 @@ If a server shows "Failed", check:
 - Is the user signed in with their Microsoft account?
 - Has the tenant admin enabled the MCP server in M365 Admin Center → Agents and Tools?
 
+## Important: Calendar API Timezone Bug
+
+The CalendarTools MCP server **ignores the `timeZone` parameter** and always interprets datetime values as **Pacific Standard Time (PST/UTC-8)**, regardless of what timezone you specify.
+
+### How to handle this
+
+1. **Discover the user's timezone** before creating/updating events:
+   - Call `CalendarTools-GetUserDateAndTimeZoneSettings` — returns the user's mailbox timezone (e.g. `"AUS Eastern Standard Time"`), working hours, date/time format
+   - This is the authoritative source — use it over system timezone or hardcoded values
+
+2. **Convert all times to PST** before passing to the API:
+   - Example: User wants 3:00 PM AEDT (UTC+11) → convert to PST (UTC-8)
+   - 3:00 PM AEDT = 04:00 UTC = 8:00 PM PST (previous day)
+   - Pass `startDateTime: "2026-02-26T20:00:00"` (PST equivalent)
+
+3. **Quick conversion formula**: `PST time = User's local time - (user_utc_offset + 8) hours`
+   - AEDT (UTC+11): subtract 19 hours from local time
+   - AEST (UTC+10): subtract 18 hours from local time
+   - GMT (UTC+0): subtract 8 hours from local time
+
+**If you don't convert, events will be placed at the wrong time!**
+
 ## Troubleshooting
 
 | Error | Cause | Fix |
@@ -121,6 +143,20 @@ If a server shows "Failed", check:
 | `401 Unauthorized` | Auth token missing or expired | Restart CLI, re-authenticate |
 | `403 Forbidden` | Admin hasn't granted MCP server permission | Tenant admin must enable in M365 Admin Center |
 | `UnexpectedError` | Various server-side issues | Check environment is "Ready" state in Power Platform admin |
+| `AADSTS9010010` | OAuth token scope mismatch or expired | See [Refreshing Auth Tokens](#refreshing-auth-tokens) below |
+| `Incompatible auth server: does not support dynamic client registration` | OAuth cache deleted or corrupted | Run `/mcp` to re-register. See [Refreshing Auth Tokens](#refreshing-auth-tokens) |
+
+### Refreshing Auth Tokens
+
+Agent 365 MCP servers use OAuth tokens cached in `~/.copilot/mcp-oauth-config/`. These files contain **client registration data** (not just access tokens), so they are essential for the auth flow.
+
+**When tokens expire mid-session** (e.g., `AADSTS9010010` errors after ~1 hour of inactivity):
+
+1. **Best fix: Run `/mcp` in the CLI.** This reloads all MCP server connections and triggers fresh OAuth registration. The user will see a browser popup to re-authenticate.
+2. The new token cache files will appear in `~/.copilot/mcp-oauth-config/` with updated timestamps.
+3. After `/mcp` completes, retry the failed tool call — it should work.
+
+**IMPORTANT: Do NOT delete files in `~/.copilot/mcp-oauth-config/`!** These files contain OAuth client registration metadata (serverUrl, clientId, redirectUri, issuedAt), not just tokens. Deleting them causes `Incompatible auth server: does not support dynamic client registration` errors because the MCP server can no longer match the client registration. If files are accidentally deleted, running `/mcp` will regenerate them, but a browser re-auth popup is required.
 
 ## Documentation Links
 
