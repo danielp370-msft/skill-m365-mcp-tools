@@ -1,10 +1,10 @@
 ---
-name: agent365-mcp-setup
-description: Set up Microsoft Agent 365 MCP servers (Teams, Outlook Mail, Calendar, SharePoint/OneDrive, Word, Copilot Search, Dataverse, User Profile) in Copilot CLI. Use this skill when asked to connect to Agent 365 MCP servers or add Microsoft 365 tools.
+name: m365-mcp-tools
+description: Reference guide for Microsoft 365 MCP tools (Teams, Outlook Mail, Calendar, SharePoint/OneDrive, Word, Copilot Search, Dataverse). Covers setup, configuration, usage tips, known gotchas (e.g. message ID encoding), auth troubleshooting, and tool-specific workarounds. Use this skill when setting up, using, or debugging M365 MCP servers.
 license: MIT
 ---
 
-# Agent 365 MCP Server Setup
+# M365 MCP Tools Reference
 
 ## Overview
 
@@ -134,6 +134,28 @@ The CalendarTools MCP server **ignores the `timeZone` parameter** and always int
    - GMT (UTC+0): subtract 8 hours from local time
 
 **If you don't convert, events will be placed at the wrong time!**
+
+## Known Gotchas
+
+### Mail Message IDs with Special Characters
+
+Microsoft Graph message IDs are base64-encoded and often contain `/`, `+`, and `=` characters. When these IDs are passed to MailTools MCP tools (e.g., `GetMessage`, `GetAttachments`), the `/` gets interpreted as a URL path separator, causing `Resource not found for the segment '...'` errors.
+
+**Fix: URL-encode the message ID before passing it to Mail tools:**
+- `/` → `%2F`
+- `+` → `%2B`
+- `=` → `%3D`
+
+Example — raw ID from SearchMessages:
+```
+AQMkADBh...AADt/00xOu0ekm1rgcnW/5MQwcA...HwS+yVwAA...YQAAAA==
+```
+URL-encoded for GetAttachments/GetMessage:
+```
+AQMkADBh...AADt%2F00xOu0ekm1rgcnW%2F5MQwcA...HwS%2ByVwAA...YQAAAA%3D%3D
+```
+
+**Note:** Attachment IDs (returned by `GetAttachments`) use URL-safe base64 (`-` instead of `+`, `_` instead of `/`) and do NOT need encoding. So `DownloadAttachment` works fine with attachment IDs as-is.
 
 ## Troubleshooting
 
