@@ -10,6 +10,20 @@ license: MIT
 
 Microsoft Agent 365 provides enterprise-grade MCP (Model Context Protocol) servers that give agents governed access to Microsoft 365 services. This skill walks through connecting any of the available servers to Copilot CLI.
 
+## Bundled Scripts
+
+This skill includes helper scripts in `scripts/`. After installing the skill, deploy them:
+
+```bash
+cp ~/.copilot/skills/m365-mcp-tools/scripts/*.sh ~/.copilot/scripts/
+chmod +x ~/.copilot/scripts/mcp-*.sh
+```
+
+| Script | Purpose |
+|--------|---------|
+| `mcp-health-check.sh` | Probe M365 MCP server connectivity (exit 0 = healthy, 1 = expired) |
+| `mcp-refresh-tokens.sh` | Silently refresh OAuth tokens without browser interaction |
+
 ## Prerequisites
 
 1. **Frontier Preview Program** — The user must be enrolled at https://adoption.microsoft.com/copilot/frontier-program/
@@ -174,9 +188,22 @@ Agent 365 MCP servers use OAuth tokens cached in `~/.copilot/mcp-oauth-config/`.
 
 **When tokens expire mid-session** (e.g., `AADSTS9010010` errors after ~1 hour of inactivity):
 
-1. **Best fix: Run `/mcp` in the CLI.** This reloads all MCP server connections and triggers fresh OAuth registration. The user will see a browser popup to re-authenticate.
-2. The new token cache files will appear in `~/.copilot/mcp-oauth-config/` with updated timestamps.
-3. After `/mcp` completes, retry the failed tool call — it should work.
+1. **Best fix: Silent refresh (no user interaction needed).** Run `~/.copilot/scripts/mcp-refresh-tokens.sh` — this uses the OAuth2 `refresh_token` grant to get a new access token without a browser popup. It updates all token files in `~/.copilot/mcp-oauth-config/`. If it returns exit code 0, retry the failed tool call.
+2. **Fallback: Run `/mcp` in the CLI.** If the silent refresh fails (exit code 1 — refresh token itself has expired, typically after days/weeks), run `/mcp` to trigger a full browser re-auth.
+
+**Proactive health check:** Run `~/.copilot/scripts/mcp-health-check.sh` at session start to detect expired tokens before they cause tool failures. If tokens are expired, run `mcp-refresh-tokens.sh` to silently refresh them. Only ask the user for `/mcp` if silent refresh fails.
+
+**Auto-refresh recipe for agents:** When any M365 MCP tool returns `AADSTS9010010` or similar auth errors:
+```bash
+~/.copilot/scripts/mcp-refresh-tokens.sh --quiet && echo "Tokens refreshed, retrying..." || echo "Refresh failed, need /mcp"
+```
+Then retry the failed tool call. This eliminates the ~1hr token expiry interruption that previously required manual user intervention.
+
+**How `mcp-refresh-tokens.sh` works:**
+- Reads the `refreshToken` and `clientId` from `~/.copilot/mcp-oauth-config/*.tokens.json` / `*.json`
+- POSTs to `https://login.microsoftonline.com/common/oauth2/v2.0/token` with `grant_type=refresh_token`
+- Writes the new `accessToken`, `refreshToken`, and `expiresAt` back to ALL token files
+- No hardcoded user/tenant/environment values — fully portable across users
 
 **IMPORTANT: Do NOT delete files in `~/.copilot/mcp-oauth-config/`!** These files contain OAuth client registration metadata (serverUrl, clientId, redirectUri, issuedAt), not just tokens. Deleting them causes `Incompatible auth server: does not support dynamic client registration` errors because the MCP server can no longer match the client registration. If files are accidentally deleted, running `/mcp` will regenerate them, but a browser re-auth popup is required.
 
