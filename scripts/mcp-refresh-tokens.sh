@@ -15,18 +15,25 @@ if [ -z "$CONFIG_FILE" ] || [ ! -f "$TOKENS_FILE" ]; then
     exit 1
 fi
 
-# Extract credentials
+# Extract credentials and resource URL
 CLIENT_ID=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE'))['clientId'])")
+RESOURCE_URL=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE'))['resourceUrl'])")
 REFRESH_TOKEN=$(python3 -c "import json; print(json.load(open('$TOKENS_FILE'))['refreshToken'])")
-SCOPE=$(python3 -c "import json; print(json.load(open('$TOKENS_FILE'))['scope'])")
 
 if [ -z "$REFRESH_TOKEN" ]; then
     [ "$QUIET" != "--quiet" ] && echo "❌ No refresh token available. Run /mcp to authenticate."
     exit 1
 fi
 
+# Use the .default meta-scope instead of the granular scopes stored in the token.
+# Entra rejects refresh_token requests that send all 32 granular scopes
+# (e.g. McpServers.Teams.All, McpServers.Mail.All, ...) with "invalid_scope".
+# The .default scope tells Entra to return all previously-consented scopes.
+# Also use /organizations/ (not /common/) to match the Entra auth server config.
+SCOPE="${RESOURCE_URL}/.default offline_access"
+
 # Attempt silent refresh
-RESPONSE=$(curl -s -X POST "https://login.microsoftonline.com/common/oauth2/v2.0/token" \
+RESPONSE=$(curl -s -X POST "https://login.microsoftonline.com/organizations/oauth2/v2.0/token" \
     -d "client_id=$CLIENT_ID" \
     -d "grant_type=refresh_token" \
     -d "refresh_token=$REFRESH_TOKEN" \
